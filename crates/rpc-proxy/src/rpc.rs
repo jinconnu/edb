@@ -41,7 +41,7 @@ const CACHEABLE_METHODS: &[&str] = &[
     // Transaction data (always immutable)
     "eth_getTransactionByHash",
     "eth_getRawTransactionByHash",
-    "eth_getTransactionReceipt",
+    // "eth_getTransactionReceipt",
     "eth_getTransactionByBlockHashAndIndex",
     "eth_getTransactionByBlockNumberAndIndex",
     // Block data (immutable once finalized)
