@@ -197,13 +197,34 @@ async fn run_server(args: ServerArgs) -> Result<()> {
         // Standard mode - run as daemon
         info!("Starting EDB RPC Proxy on {}", addr);
 
-        // Set up shutdown signal handling
-        tokio::select! {
-            result = proxy.serve(addr) => {
-                result?;
+        // Set up shutdown signal handling (SIGTERM is what Docker/Kubernetes send on stop)
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            let mut sigint = signal(SignalKind::interrupt())?;
+            let mut sigterm = signal(SignalKind::terminate())?;
+
+            tokio::select! {
+                result = proxy.serve(addr) => {
+                    result?;
+                }
+                _ = sigint.recv() => {
+                    info!("Received SIGINT, shutting down gracefully");
+                }
+                _ = sigterm.recv() => {
+                    info!("Received SIGTERM, shutting down gracefully");
+                }
             }
-            _ = tokio::signal::ctrl_c() => {
-                info!("Received shutdown signal");
+        }
+        #[cfg(not(unix))]
+        {
+            tokio::select! {
+                result = proxy.serve(addr) => {
+                    result?;
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    info!("Received shutdown signal");
+                }
             }
         }
     }
