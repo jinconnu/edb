@@ -193,10 +193,14 @@ impl RpcHandler {
             let cache_key = self.generate_cache_key(&request);
 
             // Try to get from cache first
-            if let Some(cached_response) = self.cache_manager.get(&cache_key).await {
+            if let Some(mut cached_response) = self.cache_manager.get(&cache_key).await {
                 let response_time = start_time.elapsed().as_millis() as u64;
                 self.metrics_collector.record_cache_hit(method, response_time);
                 debug!("Cache hit for {}: {}", method, cache_key);
+                // The cache key ignores the request id: answer with the caller's own id
+                if let Some(id) = request.get("id") {
+                    cached_response["id"] = id.clone();
+                }
                 return Ok(cached_response);
             }
 
@@ -840,6 +844,34 @@ mod tests {
         assert_eq!(result2, response_data);
 
         // Mock server expectations should be met (only 1 call)
+    }
+
+    #[tokio::test]
+    async fn test_cache_hit_uses_request_id() {
+        let Some((handler, mock_server, _temp_dir)) =
+            create_test_rpc_handler("test_cache_hit_uses_request_id").await
+        else {
+            return;
+        };
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({"jsonrpc": "2.0", "id": 42, "result": "0x1"}),
+            ))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let request = |id| {
+            serde_json::json!({"jsonrpc": "2.0", "method": "eth_chainId", "params": [], "id": id})
+        };
+        handler.handle_request(request(42)).await.unwrap();
+
+        // Cache hit from another client using a different id
+        let result = handler.handle_request(request(1)).await.unwrap();
+        assert_eq!(result["id"], 1);
+        assert_eq!(result["result"], "0x1");
     }
 
     #[tokio::test]
